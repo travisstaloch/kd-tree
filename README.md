@@ -88,3 +88,12 @@ test "basic usage" {
     try testing.expectEqual(3, radius_search_results.items.len);
 }
 ```
+
+# Demo
+```console
+zig build run
+```
+![Screenshot](https://github.com/user-attachments/assets/ec4a26a9-2c92-4f72-aaed-08c20c296a47)
+red is the target point and radius.  green + outlined is the closest neighbor.  green are the 5 nearest neighbors.  and blue are within the search radius.
+
+If you want to run the demo app, you'll need to either have raylib available on your system or create a deps/raylib folder and put libraylib.a there along with include/{raylib.h,raymath.h,rlgl.h}
