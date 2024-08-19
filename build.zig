@@ -31,4 +31,13 @@ pub fn build(b: *std.Build) void {
     if (b.args) |args| run_cmd.addArgs(args);
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
+
+    const bench = b.addExecutable(.{
+        .name = "bench",
+        .root_source_file = b.path("src/bench.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    bench.root_module.addImport("kd-tree", mod);
+    b.installArtifact(bench);
 }

@@ -49,6 +49,7 @@ pub fn KdTree(comptime T: type) type {
             while (i < points.len) : (i += 1) point_indices[i] = i;
 
             var self = Self{ .points = points };
+            try self.nodes.ensureTotalCapacity(alloc, points.len);
             _ = try self.initImpl(alloc, point_indices, 0);
             return self;
         }
@@ -167,7 +168,7 @@ pub fn KdTree(comptime T: type) type {
             }.lessThan);
 
             const node_idx: Node.Idx = @enumFromInt(self.nodes.items.len);
-            try self.nodes.append(alloc, .{
+            self.nodes.appendAssumeCapacity(.{
                 .point_idx = point_indices[mid],
                 .axis = axis,
             });
