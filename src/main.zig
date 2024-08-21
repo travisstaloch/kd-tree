@@ -55,7 +55,7 @@ pub fn main() !void {
     // for (test_points) |p| {
     //     try points.append(.{ .x = p[0] / 10.0 * width, .y = p[1] / 10.0 * height });
     // }
-    var tree = try kdtree.KdTree(rl.Vector2).init(alloc, points.items);
+    var tree = try kdtree.KdTree(rl.Vector2, .{}).init(alloc, points.items);
     defer tree.deinit(alloc);
     const target = rl.Vector2{ .x = width * 0.3, .y = height * 0.5 };
     const c_radius = 5;

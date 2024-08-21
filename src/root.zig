@@ -1,4 +1,15 @@
-pub fn KdTree(comptime T: type) type {
+pub const Options = struct {
+    /// which sort algorithm to use while building the tree during init().
+    sort_algorithm: enum {
+        /// Floyd-Rivest median of median.  found to be around 4x faster than
+        /// unstable in release fast benchmark.
+        median_of_medians,
+        /// std.mem.sortUnstable
+        unstable,
+    } = .median_of_medians,
+};
+
+pub fn KdTree(comptime T: type, comptime options: Options) type {
     return struct {
         /// original points
         points: []const Point,
@@ -49,6 +60,7 @@ pub fn KdTree(comptime T: type) type {
             while (i < points.len) : (i += 1) point_indices[i] = i;
 
             var self = Self{ .points = points };
+
             try self.nodes.ensureTotalCapacity(alloc, points.len);
             _ = try self.initImpl(alloc, point_indices, 0);
             return self;
@@ -111,16 +123,16 @@ pub fn KdTree(comptime T: type) type {
         }
 
         /// Visit all nodes calling visitor with each.
-        /// Pass `options.start_node_idx = .root` which (default value) to
+        /// Pass `visit_options.start_node_idx = .root` which (default value) to
         /// search all nodes or @enumFromInt(node_idx) to start somewhere else.
         /// `visitor` may return false to prevent decending into child nodes.
         pub fn visit(
             self: Self,
-            options: struct { start_node_idx: Node.Idx = .root },
+            visit_options: struct { start_node_idx: Node.Idx = .root },
             ctx: anytype,
             visitor: *const fn (tree: Self, node: Node, ctx: @TypeOf(ctx)) bool,
         ) void {
-            const n = self.nodes.items[options.start_node_idx.int()];
+            const n = self.nodes.items[visit_options.start_node_idx.int()];
             if (!visitor(self, n, ctx)) return;
             if (n.next[0] != Node.sentinel) {
                 self.visit(.{ .start_node_idx = n.next[0] }, ctx, visitor);
@@ -134,15 +146,90 @@ pub fn KdTree(comptime T: type) type {
         /// accessing struct and array fields.
         fn pointField(t: Point, axis: u8) Child {
             return switch (info) {
-                .Array => return t[axis],
-                .Struct => {
-                    const fe: Fe = @enumFromInt(axis);
-                    return switch (fe) {
-                        inline else => |tag| @field(t, @tagName(tag)),
-                    };
+                .Array => t[axis],
+                .Struct => switch (@as(Fe, @enumFromInt(axis))) {
+                    inline else => |tag| @field(t, @tagName(tag)),
                 },
                 else => not_supported,
             };
+        }
+
+        /// Sorts `points_indices` into [ (unsorted items less than k), (k), (unsorted items greater than k)]
+        /// where k is the median of `points_indices` ordered by `points`.
+        ///
+        /// Adapatation of the SELECT algorighm from http://rcin.org.pl/Content/139623/PDF/RB-2004-68.pdf
+        ///
+        /// Thanks to @Rocketeer from the zig discord for sharing this implementation!
+        /// They authored it in this project https://github.com/OliveThePuffin/robot/blob/main/src/slam/IKDTree.zig
+        /// and i have only adapted it here modify `point_indices` instead of `points`.
+        fn select(self: *const Self, point_indices: []u32, idx: u32, axis: u8) u32 {
+            if (point_indices.len == 1) return point_indices[0];
+
+            var left: u32 = 0;
+            var right: u32 = @intCast(point_indices.len - 1);
+
+            while (right > left) {
+                if (right - left > 600) {
+                    const idx_float: f32 = @floatFromInt(idx);
+                    const n: f32 = @floatFromInt(right - left + 1);
+                    const i: f32 = @floatFromInt(idx - left + 1);
+                    const z: f32 = @log(n);
+                    const s: f32 = 0.5 * std.math.exp(2.0 * z / 3);
+                    const sd: f32 = 0.5 * @sqrt(z * s * (n - s) / n) *
+                        std.math.sign(i - n / 2);
+                    const new_left: u32 = @intCast(@max(
+                        @as(isize, @intCast(left)),
+                        @as(isize, @intFromFloat(idx_float - i * s / n + sd)),
+                    ));
+                    const new_right: u32 = @intCast(@min(
+                        @as(isize, @intCast(right)),
+                        @as(isize, @intFromFloat(idx_float + (n - i) * s / n + sd)),
+                    ));
+                    _ = self.select(
+                        point_indices[new_left .. new_right + 1],
+                        idx - new_left,
+                        axis,
+                    );
+                }
+                const t = point_indices[idx];
+                var i = left;
+                var j = right;
+                mem.swap(u32, &point_indices[left], &point_indices[idx]);
+                if (pointField(self.points[point_indices[right]], axis) >
+                    pointField(self.points[t], axis))
+                {
+                    mem.swap(u32, &point_indices[left], &point_indices[right]);
+                }
+                while (i < j) {
+                    mem.swap(u32, &point_indices[i], &point_indices[j]);
+                    i += 1;
+                    j -= 1;
+                    while (pointField(self.points[point_indices[i]], axis) <
+                        pointField(self.points[t], axis))
+                    {
+                        i += 1;
+                    }
+                    while (pointField(self.points[point_indices[j]], axis) >
+                        pointField(self.points[t], axis))
+                    {
+                        j -= 1;
+                    }
+                }
+
+                if (pointField(self.points[point_indices[left]], axis) ==
+                    pointField(self.points[t], axis))
+                {
+                    mem.swap(u32, &point_indices[left], &point_indices[j]);
+                } else {
+                    j += 1;
+                    mem.swap(u32, &point_indices[right], &point_indices[j]);
+                }
+                if (j <= idx)
+                    left = j + 1;
+                if (idx <= j and j > 0)
+                    right = j - 1;
+            }
+            return point_indices[idx];
         }
 
         /// build tree recursively.
@@ -155,17 +242,24 @@ pub fn KdTree(comptime T: type) type {
             if (point_indices.len == 0) return Node.sentinel;
 
             const axis: u8 = @truncate(depth % len);
-            const mid = (point_indices.len - 1) / 2;
+            const mid: u32 = @intCast((point_indices.len - 1) / 2);
 
             // sort indices by points at axis
-            const Ctx = struct { points: []const Point, axis: u8 };
-            const _ctx = Ctx{ .points = self.points, .axis = axis };
-            std.mem.sortUnstable(u32, point_indices, _ctx, struct {
-                fn lessThan(ctx: Ctx, lhs: u32, rhs: u32) bool {
-                    return pointField(ctx.points[lhs], ctx.axis) <
-                        pointField(ctx.points[rhs], ctx.axis);
-                }
-            }.lessThan);
+            switch (options.sort_algorithm) {
+                .median_of_medians => {
+                    _ = self.select(point_indices, mid, axis);
+                },
+                .unstable => {
+                    const Ctx = struct { points: []const Point, axis: u8 };
+                    const _ctx = Ctx{ .points = self.points, .axis = axis };
+                    std.mem.sortUnstable(u32, point_indices, _ctx, struct {
+                        fn lessThan(ctx: Ctx, lhs: u32, rhs: u32) bool {
+                            return pointField(ctx.points[lhs], ctx.axis) <
+                                pointField(ctx.points[rhs], ctx.axis);
+                        }
+                    }.lessThan);
+                },
+            }
 
             const node_idx: Node.Idx = @enumFromInt(self.nodes.items.len);
             self.nodes.appendAssumeCapacity(.{
@@ -385,7 +479,7 @@ test "basic usage" {
     };
 
     // TODO: const KdTree = @import("kdtree").KdTree;
-    const Tree = KdTree(MyPoint);
+    const Tree = KdTree(MyPoint, .{});
     var tree = try Tree.init(std.testing.allocator, &my_points);
     defer tree.deinit(std.testing.allocator);
 
@@ -460,8 +554,10 @@ const test_points: [32][2]f32 = .{
 
 /// run test with both struct and array types (TestPoint(T) and [2]T)
 fn testWithT(comptime T: type) !void {
-    try testWithKdTree(KdTree(TestPoint(T)));
-    try testWithKdTree(KdTree([2]T));
+    try testWithKdTree(KdTree(TestPoint(T), .{}));
+    try testWithKdTree(KdTree([2]T, .{}));
+    try testWithKdTree(KdTree(TestPoint(T), .{ .sort_algorithm = .unstable }));
+    try testWithKdTree(KdTree([2]T, .{ .sort_algorithm = .unstable }));
 }
 
 fn testWithKdTree(comptime Tree: type) !void {
@@ -621,7 +717,7 @@ test "larger dataset" {
         .x = rand.float(f32) * scale,
         .y = rand.float(f32) * scale,
     };
-    var tree = try KdTree(TestPoint(f32)).init(talloc, points);
+    var tree = try KdTree(TestPoint(f32), .{}).init(talloc, points);
     defer tree.deinit(talloc);
 
     // validate
