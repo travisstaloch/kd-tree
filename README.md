@@ -51,7 +51,7 @@ test "basic usage" {
     };
 
     // TODO: const KdTree = @import("kdtree").KdTree;
-    const Tree = KdTree(MyPoint);
+    const Tree = KdTree(MyPoint, .{});
     var tree = try Tree.init(std.testing.allocator, &my_points);
     defer tree.deinit(std.testing.allocator);
 
@@ -97,3 +97,27 @@ zig build run
 red is the target point and radius.  green + outlined is the closest neighbor.  green are the 5 nearest neighbors.  and blue are within the search radius.
 
 If you want to run the demo app, you'll need to either have raylib available on your system or create a deps/raylib folder and put libraylib.a there along with include/{raylib.h,raymath.h,rlgl.h}
+
+# Bench
+```console
+$ ./bench.sh unstable
+...
+++ zig build -Doptimize=ReleaseFast
+++ zig-out/bin/bench unstable
+init time 56.034ms
+validate time 215.078us
+nnSearch time 9.28us
+knnSearch time 838.642us
+radiusSearch time 4.85us
+time 57.105ms size 100000
+$ ./bench.sh median_of_medians
+...
+++ zig build -Doptimize=ReleaseFast
+++ zig-out/bin/bench
+init time 15.637ms
+validate time 250.359us
+nnSearch time 9.29us
+knnSearch time 861.343us
+radiusSearch time 5.34us
+time 16.767ms size 100000
+```

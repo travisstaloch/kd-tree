@@ -12,31 +12,22 @@ fn TestPoint(comptime T: type) type {
     };
 }
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const alloc = gpa.allocator();
-    // var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    // const alloc = arena.allocator();
-
+fn benchWithAlgo(alloc: mem.Allocator, comptime algo: kd_tree.Options.SortAlgorithm) !void {
     var prng = std.Random.DefaultPrng.init(0);
     const rand = prng.random();
-    const scale = 10_000;
 
     const size = 100_000;
     const points = try alloc.alloc(TestPoint(f32), size);
     defer alloc.free(points);
+    const scale = 10_000;
     for (points) |*p| p.* = .{
         .x = rand.float(f32) * scale,
         .y = rand.float(f32) * scale,
     };
+
     var timer = try std.time.Timer.start();
     var timer2 = try std.time.Timer.start();
-    var tree = try KdTree(TestPoint(f32), .{
-        // .sort_algorithm = .unstable,
-        .sort_algorithm = .median_of_medians,
-    }).init(alloc, points);
-
+    var tree = try KdTree(TestPoint(f32), .{ .sort_algorithm = algo }).init(alloc, points);
     std.debug.print("init time {}\n", .{std.fmt.fmtDuration(timer2.lap())});
     defer tree.deinit(alloc);
 
@@ -63,6 +54,27 @@ pub fn main() !void {
     try tree.radiusSearch(target, radius, &result);
     std.debug.print("radiusSearch time {}\n", .{std.fmt.fmtDuration(timer2.lap())});
     std.debug.print("time {} size {}\n", .{ std.fmt.fmtDuration(timer.read()), size });
+}
+
+pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const alloc = gpa.allocator();
+    // var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    // const alloc = arena.allocator();
+    const args = try std.process.argsAlloc(alloc);
+    defer std.process.argsFree(alloc, args);
+    const algo: kd_tree.Options.SortAlgorithm = if (args.len > 1)
+        std.meta.stringToEnum(kd_tree.Options.SortAlgorithm, args[1]) orelse
+            return error.InvalidSortAlgorithm
+    else
+        .median_of_medians;
+
+    switch (algo) {
+        inline else => |a| {
+            try benchWithAlgo(alloc, a);
+        },
+    }
 }
 
 const std = @import("std");

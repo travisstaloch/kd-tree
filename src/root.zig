@@ -1,12 +1,14 @@
 pub const Options = struct {
     /// which sort algorithm to use while building the tree during init().
-    sort_algorithm: enum {
+    sort_algorithm: SortAlgorithm = .median_of_medians,
+
+    pub const SortAlgorithm = enum {
         /// Floyd-Rivest median of median.  found to be around 4x faster than
         /// unstable in release fast benchmark.
         median_of_medians,
         /// std.mem.sortUnstable
         unstable,
-    } = .median_of_medians,
+    };
 };
 
 pub fn KdTree(comptime T: type, comptime options: Options) type {
@@ -66,7 +68,7 @@ pub fn KdTree(comptime T: type, comptime options: Options) type {
             return self;
         }
 
-        /// Free all nodes and set root to null.
+        /// Free all nodes.
         pub fn deinit(self: *Self, alloc: mem.Allocator) void {
             self.nodes.deinit(alloc);
         }
@@ -161,7 +163,7 @@ pub fn KdTree(comptime T: type, comptime options: Options) type {
         ///
         /// Thanks to @Rocketeer from the zig discord for sharing this implementation!
         /// They authored it in this project https://github.com/OliveThePuffin/robot/blob/main/src/slam/IKDTree.zig
-        /// and i have only adapted it here modify `point_indices` instead of `points`.
+        /// and i have only adapted it here to modify `point_indices` instead of `points`.
         fn select(self: *const Self, point_indices: []u32, idx: u32, axis: u8) u32 {
             if (point_indices.len == 1) return point_indices[0];
 
