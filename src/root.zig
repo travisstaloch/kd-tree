@@ -86,7 +86,7 @@ pub fn KdTree(comptime T: type, comptime options: Options) type {
         /// Search for the single nearest neighbor.
         pub fn nnSearch(self: *const Self, target: Point) NnResult {
             var result: NnResult = .{
-                .min_distance = child_max,
+                .min_distance2 = child_max,
                 .nearest_point_idx = undefined,
             };
             self.nnSearchImpl(target, .root, &result);
@@ -105,7 +105,7 @@ pub fn KdTree(comptime T: type, comptime options: Options) type {
             var queue = KnnQueue.init(allocator, @intCast(result_indices.len));
             defer queue.deinit();
 
-            try self.knnSearchRecursive(target, .root, &queue, @intCast(result_indices.len));
+            try self.knnSearchImpl(target, .root, &queue, @intCast(result_indices.len));
 
             for (0..queue.storage.items.len) |i| {
                 result_indices[i] = queue.storage.items[i][1];
@@ -314,7 +314,11 @@ pub fn KdTree(comptime T: type, comptime options: Options) type {
             return dist;
         }
 
-        pub const NnResult = struct { nearest_point_idx: u32, min_distance: Child };
+        pub const NnResult = struct {
+            nearest_point_idx: u32,
+            /// distance squared
+            min_distance2: Child,
+        };
         /// Search the nearest neighbor recursively.
         fn nnSearchImpl(
             self: *const Self,
@@ -327,9 +331,9 @@ pub fn KdTree(comptime T: type, comptime options: Options) type {
             const node = self.nodes.items[node_idx.int()];
             const train = self.points[node.point_idx];
 
-            const dist = distance2(target, train);
-            if (dist < result.min_distance) {
-                result.min_distance = dist;
+            const dist2 = distance2(target, train);
+            if (dist2 < result.min_distance2) {
+                result.min_distance2 = dist2;
                 result.nearest_point_idx = node.point_idx;
             }
 
@@ -337,8 +341,9 @@ pub fn KdTree(comptime T: type, comptime options: Options) type {
             const dir = pointField(train, axis) < pointField(target, axis);
             self.nnSearchImpl(target, node.next[@intFromBool(dir)], result);
 
-            const diff = @abs(pointField(target, axis) - pointField(train, axis));
-            if (diff < result.min_distance) {
+            const diff = pointField(target, axis) - pointField(train, axis);
+            const diff2 = diff * diff;
+            if (diff2 < result.min_distance2) {
                 self.nnSearchImpl(target, node.next[@intFromBool(!dir)], result);
             }
         }
@@ -347,7 +352,7 @@ pub fn KdTree(comptime T: type, comptime options: Options) type {
         pub const KnnQueue = BoundedPriorityQueue(QueueItem);
 
         /// Search k-nearest neighbors recursively.
-        fn knnSearchRecursive(
+        fn knnSearchImpl(
             self: *const Self,
             target: Point,
             node_idx: Node.Idx,
@@ -364,11 +369,12 @@ pub fn KdTree(comptime T: type, comptime options: Options) type {
 
             const axis = node.axis;
             const dir = pointField(train, axis) < pointField(target, axis);
-            try self.knnSearchRecursive(target, node.next[@intFromBool(dir)], queue, k);
+            try self.knnSearchImpl(target, node.next[@intFromBool(dir)], queue, k);
 
-            const diff = @abs(pointField(target, axis) - pointField(train, axis));
-            if (queue.count() < k or diff < queue.last()[0])
-                try self.knnSearchRecursive(target, node.next[@intFromBool(!dir)], queue, k);
+            const diff = pointField(target, axis) - pointField(train, axis);
+            const diff2 = diff * diff;
+            if (queue.count() < k or diff2 < queue.last()[0])
+                try self.knnSearchImpl(target, node.next[@intFromBool(!dir)], queue, k);
         }
 
         /// Search nearest neighbors recursively.
