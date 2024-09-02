@@ -22,14 +22,14 @@ pub fn KdTree(comptime T: type, comptime options: Options) type {
         const Self = @This();
         const info = @typeInfo(Point);
         pub const len: u8 = switch (info) {
-            .Array => |a| a.len,
-            .Struct => |s| s.fields.len,
+            .array => |a| a.len,
+            .@"struct" => |s| s.fields.len,
             else => not_supported,
         };
         pub const Point = T;
         pub const Child = switch (info) {
-            .Array => |a| a.child,
-            .Struct => |s| s.fields[0].type,
+            .array => |a| a.child,
+            .@"struct" => |s| s.fields[0].type,
             else => not_supported,
         };
         const Fe = std.meta.FieldEnum(Point);
@@ -79,7 +79,7 @@ pub fn KdTree(comptime T: type, comptime options: Options) type {
         }
 
         const child_max: Child = switch (@typeInfo(Child)) {
-            .Float => std.math.floatMax(Child),
+            .float => std.math.floatMax(Child),
             else => not_supported,
         };
 
@@ -148,8 +148,8 @@ pub fn KdTree(comptime T: type, comptime options: Options) type {
         /// accessing struct and array fields.
         fn pointField(t: Point, axis: u8) Child {
             return switch (info) {
-                .Array => t[axis],
-                .Struct => switch (@as(Fe, @enumFromInt(axis))) {
+                .array => t[axis],
+                .@"struct" => switch (@as(Fe, @enumFromInt(axis))) {
                     inline else => |tag| @field(t, @tagName(tag)),
                 },
                 else => not_supported,
@@ -574,10 +574,10 @@ fn testWithKdTree(comptime Tree: type) !void {
     const T = Tree.Child;
 
     var points: [32]Pt = undefined;
-    for (0..32) |i| points[i] = if (Tree.info == .Struct) .{
+    for (0..32) |i| points[i] = if (Tree.info == .@"struct") .{
         .x = @floatCast(test_points[i][0]),
         .y = @floatCast(test_points[i][1]),
-    } else if (Tree.info == .Array) .{
+    } else if (Tree.info == .array) .{
         @floatCast(test_points[i][0]),
         @floatCast(test_points[i][1]),
     } else unreachable;
@@ -600,7 +600,7 @@ fn testWithKdTree(comptime Tree: type) !void {
 
     // nnSearch
     {
-        const p = if (Tree.info == .Struct)
+        const p = if (Tree.info == .@"struct")
             TestPoint(T){ .x = scale / 2, .y = scale / 2 }
         else
             .{ scale / 2, scale / 2 };
@@ -609,7 +609,7 @@ fn testWithKdTree(comptime Tree: type) !void {
         try testing.expectEqual(points[29], points[result.nearest_point_idx]);
     }
     {
-        const p = if (Tree.info == .Struct)
+        const p = if (Tree.info == .@"struct")
             TestPoint(T){ .x = 0, .y = 0 }
         else
             .{ 0, 0 };
@@ -618,7 +618,7 @@ fn testWithKdTree(comptime Tree: type) !void {
         try testing.expectEqual(points[6], points[result.nearest_point_idx]);
     }
     {
-        const p = if (Tree.info == .Struct)
+        const p = if (Tree.info == .@"struct")
             TestPoint(T){ .x = scale, .y = scale }
         else
             .{ scale, scale };
@@ -627,7 +627,7 @@ fn testWithKdTree(comptime Tree: type) !void {
         try testing.expectEqual(points[25], points[result.nearest_point_idx]);
     }
     {
-        const p = if (Tree.info == .Struct)
+        const p = if (Tree.info == .@"struct")
             TestPoint(T){ .x = 0, .y = scale }
         else
             .{ 0, scale };
@@ -636,7 +636,7 @@ fn testWithKdTree(comptime Tree: type) !void {
         try testing.expectEqual(points[13], points[result.nearest_point_idx]);
     }
     {
-        const p = if (Tree.info == .Struct)
+        const p = if (Tree.info == .@"struct")
             TestPoint(T){ .x = scale, .y = 0 }
         else
             .{ scale, 0 };
@@ -645,7 +645,7 @@ fn testWithKdTree(comptime Tree: type) !void {
         try testing.expectEqual(points[8], points[result.nearest_point_idx]);
     }
 
-    const target = if (Tree.info == .Struct)
+    const target = if (Tree.info == .@"struct")
         TestPoint(T){ .x = scale / 2, .y = scale / 2 }
     else
         .{ scale / 2, scale / 2 };
@@ -655,7 +655,7 @@ fn testWithKdTree(comptime Tree: type) !void {
         var result: [4]u32 = undefined;
         try tree.knnSearch(talloc, target, &result);
 
-        if (Tree.info == .Struct) {
+        if (Tree.info == .@"struct") {
             const p1 = points[result[0]];
             const p2 = points[result[1]];
             const p3 = points[result[2]];
@@ -681,7 +681,7 @@ fn testWithKdTree(comptime Tree: type) !void {
     const radius = 3;
     try tree.radiusSearch(target, radius, &result);
     for (result.items) |i| {
-        if (Tree.info == .Struct) {
+        if (Tree.info == .@"struct") {
             const p = points[i];
             try testing.expect(@sqrt(target.sub(p).len2()) < radius);
         } else {
@@ -694,7 +694,7 @@ fn testWithKdTree(comptime Tree: type) !void {
     // check count outside radius
     var count2: u8 = 0;
     for (points) |p| {
-        if (Tree.info == .Struct) {
+        if (Tree.info == .@"struct") {
             count2 += @intFromBool(@sqrt(target.sub(p).len2()) >= radius);
         } else {
             const _target = TestPoint(T){ .x = target[0], .y = target[1] };
